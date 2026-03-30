@@ -2,43 +2,65 @@ import pandas as pd
 from utils.column_utils import find_column
 
 def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFrame) -> pd.DataFrame:
-    """Concilia vendas e recebimentos com base na fórmula: Bruto - Taxas - Descontos."""
     pedido_col = find_column(sales_df, "ID do pedido")
     venda_data_col = find_column(sales_df, "Data de criação do pedido")
-    bruto_col = find_column(sales_df, "Valor Total")
+    
+    # Base real de facturação
+    subtotal_col = find_column(sales_df, "Subtotal do produto")
+    valor_total_col = find_column(sales_df, "Valor Total")
     
     if pedido_col is None:
-        raise ValueError("A planilha de vendas não possui a coluna ID do pedido.")
+        raise ValueError("A folha de vendas não possui a coluna ID do pedido.")
     if receipts_df.empty:
         raise ValueError("Nenhum recebimento foi carregado.")
 
-    # Identificação das colunas de Taxas
+    # Taxas Cobradas pela Plataforma (O que sai)
     taxa_transacao_col = find_column(sales_df, "Taxa de transação")
     comissao_liq_col = find_column(sales_df, "Taxa de comissão líquida")
     servico_liq_col = find_column(sales_df, "Taxa de serviço líquida")
     frete_rev_col = find_column(sales_df, "Taxa de Envio Reversa")
+    ajuste_acao_col = find_column(sales_df, "Ajuste por participação em ação comercial")
     
-    # Identificação das colunas de Descontos
-    desconto_vend_col = find_column(sales_df, "Desconto do vendedor")
+    # Cupons do Vendedor (O Desconto do Vendedor JÁ ESTÁ no Subtotal, não podemos subtrair de novo!)
     cupom_vend_col = find_column(sales_df, "Cupom do vendedor")
-    cupom_shopee_col = find_column(sales_df, "Cupom Shopee")
+    
+    # Adições/Incentivos da Plataforma (O que entra)
+    incentivo_shopee_col = find_column(sales_df, "Incentivo Shopee para ação comercial")
 
     sales_df = sales_df.copy()
     sales_df[pedido_col] = sales_df[pedido_col].fillna("").astype(str).str.strip()
 
-    # Agrupamento de Taxas e Descontos por linha
-    cols_taxas = [c for c in [taxa_transacao_col, comissao_liq_col, servico_liq_col, frete_rev_col] if c]
-    cols_descontos = [c for c in [desconto_vend_col, cupom_vend_col, cupom_shopee_col] if c]
+    cols_taxas = [c for c in [taxa_transacao_col, comissao_liq_col, servico_liq_col, frete_rev_col, ajuste_acao_col] if c]
+    cols_cupons = [c for c in [cupom_vend_col] if c]
+    cols_adicoes = [c for c in [incentivo_shopee_col] if c]
     
-    sales_df['_taxas_soma'] = sales_df[cols_taxas].sum(axis=1) if cols_taxas else 0.0
-    sales_df['_descontos_soma'] = sales_df[cols_descontos].sum(axis=1) if cols_descontos else 0.0
+    # Conversão de segurança para evitar que valores em texto quebrem a matemática
+    def safe_sum(df, cols):
+        return df[cols].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1) if cols else 0.0
+
+    sales_df['_taxas_soma'] = safe_sum(sales_df, cols_taxas)
+    sales_df['_cupons_vend_soma'] = safe_sum(sales_df, cols_cupons)
+    sales_df['_adicoes_soma'] = safe_sum(sales_df, cols_adicoes)
     
-    # APLICAÇÃO DA FÓRMULA SOLICITADA: Bruto - Taxas - Descontos
-    sales_df['_esperado_final'] = sales_df[bruto_col] - sales_df['_taxas_soma'] - sales_df['_descontos_soma']
+    # APLICAÇÃO DA FÓRMULA CORRIGIDA
+    if subtotal_col:
+        sales_df['_base_calc'] = pd.to_numeric(sales_df[subtotal_col], errors='coerce').fillna(0)
+        # FÓRMULA: Subtotal - Cupom Vendedor + Incentivos - Taxas
+        sales_df['_esperado_final'] = (
+            sales_df['_base_calc']
+            - sales_df['_cupons_vend_soma'] 
+            + sales_df['_adicoes_soma'] 
+            - sales_df['_taxas_soma']
+        )
+        base_faturamento = subtotal_col
+    else:
+        bruto_col = pd.to_numeric(sales_df[valor_total_col], errors='coerce').fillna(0)
+        sales_df['_esperado_final'] = bruto_col - sales_df['_taxas_soma'] - sales_df['_cupons_vend_soma']
+        base_faturamento = valor_total_col
 
     # Agrupar Vendas
     agg_dict = {
-        "valor_bruto": (bruto_col, "sum"),
+        "valor_bruto": (base_faturamento, "sum"),
         "valor_esperado": ('_esperado_final', "sum"),
     }
     if venda_data_col:
@@ -46,7 +68,7 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
 
     sales_summary = sales_df.groupby(pedido_col).agg(**agg_dict).reset_index().rename(columns={pedido_col: "ID do pedido"})
 
-    # Agrupar Recebimentos (Com a coluna de reembolso incluída)
+    # Agrupar Recebimentos
     agg_receipts = {
         "valor_recebido": ("_receipt_amount", "sum"),
         "primeiro_recebimento": ("_receipt_date", "min"),
@@ -57,7 +79,6 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
 
     receipts_summary = receipts_df.groupby("_receipt_order_id").agg(**agg_receipts).reset_index().rename(columns={"_receipt_order_id": "ID do pedido"})
 
-    # Cruzamento de dados
     conc = sales_summary.merge(receipts_summary, on="ID do pedido", how="left")
     conc["valor_recebido"] = conc["valor_recebido"].fillna(0.0)
     
@@ -66,18 +87,15 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
     else:
         conc["valor_reembolso"] = 0.0
 
-    # Classificação de Status Atualizada (Considera devolução como Lançamento)
     def classify(row):
         recebido = row["valor_recebido"]
         reembolso = row["valor_reembolso"]
-        # Se os dois estão zerados, não teve lançamento nenhum
         if abs(recebido) <= 0.01 and abs(reembolso) <= 0.01: 
             return "Sem lançamento"
         return "Com lançamento"
 
     conc["status_conciliacao"] = conc.apply(classify, axis=1)
     
-    # Cálculo de dias para receber
     if "primeiro_recebimento" in conc.columns and "data_venda" in conc.columns:
         conc["dias_para_receber"] = (pd.to_datetime(conc["primeiro_recebimento"]) - pd.to_datetime(conc["data_venda"])).dt.days
     else:
