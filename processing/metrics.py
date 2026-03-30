@@ -63,6 +63,7 @@ def calculate_receipt_metrics(conc_df: pd.DataFrame) -> Dict[str, float]:
     """Agrega as métricas para a aba de Conciliação Financeira."""
     total_esperado = conc_df["valor_esperado"].sum() if "valor_esperado" in conc_df.columns else 0.0
     total_recebido = conc_df["valor_recebido"].sum() if "valor_recebido" in conc_df.columns else 0.0
+    total_reembolso = conc_df["valor_reembolso"].sum() if "valor_reembolso" in conc_df.columns else 0.0
     
     df_valido = conc_df.dropna(subset=["dias_para_receber", "valor_esperado"])
     pmr_ponderado = 0.0
@@ -73,11 +74,12 @@ def calculate_receipt_metrics(conc_df: pd.DataFrame) -> Dict[str, float]:
         "Total vendido": conc_df["valor_bruto"].sum() if "valor_bruto" in conc_df.columns else 0.0,
         "Total esperado": total_esperado,
         "Total recebido": total_recebido,
+        "Total de reembolsos": total_reembolso,
         "Eficiência de Recebimento %": (total_recebido / total_esperado * 100) if total_esperado > 0 else 0.0,
         "PMR Ponderado (dias)": pmr_ponderado,
         "Qtd pedidos": conc_df["ID do pedido"].nunique() if "ID do pedido" in conc_df.columns else 0,
-        "Qtd com lançamento": (conc_df["status_conciliacao"] == "Recebido").sum(),
+        "Qtd com lançamento": (conc_df["status_conciliacao"] == "Com lançamento").sum(),
         "Qtd sem lançamento": (conc_df["status_conciliacao"] == "Sem lançamento").sum(),
-        "% com lançamento": ((conc_df["status_conciliacao"] == "Recebido").sum() / len(conc_df) * 100) if not conc_df.empty else 0.0,
+        "% com lançamento": ((conc_df["status_conciliacao"] == "Com lançamento").sum() / len(conc_df) * 100) if not conc_df.empty else 0.0,
         "Prazo médio de recebimento": conc_df["dias_para_receber"].mean() if "dias_para_receber" in conc_df.columns else 0.0
     }

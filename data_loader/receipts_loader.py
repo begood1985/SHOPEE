@@ -122,6 +122,22 @@ def find_receipt_date_column(df: pd.DataFrame) -> str | None:
     return None
 
 
+def find_receipt_refund_column(df: pd.DataFrame) -> str | None:
+    candidates = [
+        "Valor do Reembolso",
+        "Valor de Reembolso",
+        "Refund Amount",
+    ]
+    col = pick_first_existing_column(df, candidates)
+    if col:
+        return col
+
+    for real_col in df.columns:
+        norm = normalize_header_name(real_col)
+        if "valor" in norm and "reembolso" in norm:
+            return real_col
+    return None
+
 
 def load_receipt_sheet_organized(file, source_name: str | None = None) -> pd.DataFrame:
     selected_sheet = get_first_sheet_name(file)
@@ -163,6 +179,7 @@ def load_receipt_sheet_organized(file, source_name: str | None = None) -> pd.Dat
     order_col = find_receipt_id_column(df)
     amount_col = find_receipt_amount_column(df)
     date_col = find_receipt_date_column(df)
+    refund_col = find_receipt_refund_column(df)
 
     if not order_col or not amount_col or not date_col:
         raise ValueError(
@@ -170,17 +187,29 @@ def load_receipt_sheet_organized(file, source_name: str | None = None) -> pd.Dat
             f"as colunas mínimas necessárias. Colunas encontradas: {list(df.columns)}"
         )
 
-    df = df[[order_col, amount_col, date_col]].copy()
+    cols_to_keep = [order_col, amount_col, date_col]
+    if refund_col:
+        cols_to_keep.append(refund_col)
 
-    df = df.rename(columns={
+    df = df[cols_to_keep].copy()
+
+    rename_map = {
         order_col: "_receipt_order_id",
         amount_col: "_receipt_amount",
         date_col: "_receipt_date",
-    })
+    }
+    if refund_col:
+        rename_map[refund_col] = "_receipt_refund_amount"
+
+    df = df.rename(columns=rename_map)
 
     df["_receipt_order_id"] = df["_receipt_order_id"].fillna("").astype(str).str.strip()
     df["_receipt_amount"] = to_number(df["_receipt_amount"])
     df["_receipt_date"] = pd.to_datetime(df["_receipt_date"], errors="coerce")
+    
+    if "_receipt_refund_amount" in df.columns:
+        df["_receipt_refund_amount"] = to_number(df["_receipt_refund_amount"])
+        
     df["_receipt_source_file"] = source_name or ""
     df["_receipt_source_sheet"] = selected_sheet
 
@@ -226,6 +255,7 @@ def load_multiple_receipts(files) -> pd.DataFrame:
             "_receipt_order_id",
             "_receipt_amount",
             "_receipt_date",
+            "_receipt_refund_amount",
             "_receipt_source_file",
             "_receipt_source_sheet",
         ])

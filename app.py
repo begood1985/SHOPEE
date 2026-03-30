@@ -99,27 +99,28 @@ def main():
             conc_df = reconcile_sales_and_receipts(filtered_sales, receipts_df)
             receipt_metrics = calculate_receipt_metrics(conc_df)
 
-            # Métricas de Saúde de Caixa
-            r1, r2, r3, r4, r5 = st.columns(5)
+            # Métricas de Saúde de Caixa (Adicionado "Total Reembolso")
+            r1, r2, r3, r4, r5, r6 = st.columns(6)
             r1.metric("Total Esperado", brl(receipt_metrics.get("Total esperado", 0)))
             r2.metric("Total Recebido", brl(receipt_metrics["Total recebido"]))
-            r3.metric("Eficiência %", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
-            r4.metric("Com Lançamento", f"{int(receipt_metrics.get('Qtd com lançamento', 0))}")
-            r5.metric("Sem Lançamento", f"{int(receipt_metrics.get('Qtd sem lançamento', 0))}")
+            r3.metric("Total Reembolso", brl(receipt_metrics.get("Total de reembolsos", 0)))
+            r4.metric("Eficiência %", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
+            r5.metric("Lançados", f"{int(receipt_metrics.get('Qtd com lançamento', 0))}")
+            r6.metric("Sem Lançamento", f"{int(receipt_metrics.get('Qtd sem lançamento', 0))}")
 
             # Alertas: Pedidos sem lançamento
             pedidos_sem_lancamento = conc_df[conc_df["status_conciliacao"] == "Sem lançamento"]
             if not pedidos_sem_lancamento.empty:
-                st.error(f"⚠️ Detectados {len(pedidos_sem_lancamento)} pedidos sem nenhum lançamento financeiro (Não recebido).")
+                st.error(f"⚠️ Detectados {len(pedidos_sem_lancamento)} pedidos sem nenhum lançamento financeiro (Sem Recebimento / Sem Reembolso).")
                 with st.expander("Ver Detalhes dos Pedidos Sem Lançamento"):
-                    st.dataframe(pedidos_sem_lancamento[["ID do pedido", "valor_esperado", "valor_recebido", "status_conciliacao"]], use_container_width=True)
+                    st.dataframe(pedidos_sem_lancamento[["ID do pedido", "valor_esperado", "valor_recebido", "valor_reembolso", "status_conciliacao"]], use_container_width=True)
 
             st.subheader("Status dos Pedidos")
             status_counts = conc_df["status_conciliacao"].value_counts()
             plot_bar(status_counts, "Distribuição por Lançamentos")
 
-            st.subheader("Base Conciliada (Focada em Valores Recebidos)")
-            colunas_exibicao = ["ID do pedido", "valor_recebido", "status_conciliacao", "valor_esperado", "data_venda", "primeiro_recebimento"]
+            st.subheader("Base Conciliada (Focada em Lançamentos Financeiros)")
+            colunas_exibicao = ["ID do pedido", "valor_recebido", "valor_reembolso", "status_conciliacao", "valor_esperado", "data_venda", "primeiro_recebimento"]
             colunas_existentes = [col for col in colunas_exibicao if col in conc_df.columns]
             st.dataframe(conc_df[colunas_existentes], use_container_width=True, height=400)
 

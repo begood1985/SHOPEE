@@ -46,22 +46,34 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
 
     sales_summary = sales_df.groupby(pedido_col).agg(**agg_dict).reset_index().rename(columns={pedido_col: "ID do pedido"})
 
-    # Agrupar Recebimentos
-    receipts_summary = receipts_df.groupby("_receipt_order_id").agg(
-        valor_recebido=("_receipt_amount", "sum"),
-        primeiro_recebimento=("_receipt_date", "min"),
-        ultimo_recebimento=("_receipt_date", "max")
-    ).reset_index().rename(columns={"_receipt_order_id": "ID do pedido"})
+    # Agrupar Recebimentos (Com a coluna de reembolso incluída)
+    agg_receipts = {
+        "valor_recebido": ("_receipt_amount", "sum"),
+        "primeiro_recebimento": ("_receipt_date", "min"),
+        "ultimo_recebimento": ("_receipt_date", "max")
+    }
+    if "_receipt_refund_amount" in receipts_df.columns:
+        agg_receipts["valor_reembolso"] = ("_receipt_refund_amount", "sum")
+
+    receipts_summary = receipts_df.groupby("_receipt_order_id").agg(**agg_receipts).reset_index().rename(columns={"_receipt_order_id": "ID do pedido"})
 
     # Cruzamento de dados
     conc = sales_summary.merge(receipts_summary, on="ID do pedido", how="left")
     conc["valor_recebido"] = conc["valor_recebido"].fillna(0.0)
+    
+    if "valor_reembolso" in conc.columns:
+        conc["valor_reembolso"] = conc["valor_reembolso"].fillna(0.0)
+    else:
+        conc["valor_reembolso"] = 0.0
 
-    # Classificação de Status Simplificada
+    # Classificação de Status Atualizada (Considera devolução como Lançamento)
     def classify(row):
         recebido = row["valor_recebido"]
-        if abs(recebido) <= 0.01: return "Sem lançamento"
-        return "Recebido"
+        reembolso = row["valor_reembolso"]
+        # Se os dois estão zerados, não teve lançamento nenhum
+        if abs(recebido) <= 0.01 and abs(reembolso) <= 0.01: 
+            return "Sem lançamento"
+        return "Com lançamento"
 
     conc["status_conciliacao"] = conc.apply(classify, axis=1)
     
