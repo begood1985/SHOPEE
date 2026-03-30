@@ -3,13 +3,13 @@ from typing import Dict
 from utils.column_utils import find_column
 
 def calculate_metrics(df: pd.DataFrame) -> Dict[str, float]:
-    """Calcula métricas de faturamento e o Total Esperado solicitado."""
+    """Calcula métricas de faturamento e rentabilidade com as chaves exigidas pelo app.py."""
     pedido_col = find_column(df, "ID do pedido")
     valor_total_col = find_column(df, "Valor Total")
     qtd_col = find_column(df, "Quantidade")
     ret_col = find_column(df, "Returned quantity")
 
-    # Colunas de Descontos
+    # Colunas de Descontos e Subsídios
     desconto_vendedor_col = find_column(df, "Desconto do vendedor")
     cupom_vendedor_col = find_column(df, "Cupom do vendedor")
     cupom_shopee_col = find_column(df, "Cupom Shopee")
@@ -25,19 +25,26 @@ def calculate_metrics(df: pd.DataFrame) -> Dict[str, float]:
     # Cálculos de Totais
     total_bruto = df[valor_total_col].sum() if valor_total_col else 0.0
     
-    # Soma de todos os descontos identificados
-    cols_desconto = [c for c in [desconto_vendedor_col, cupom_vendedor_col, cupom_shopee_col, incentivo_col] if c]
-    total_descontos = df[cols_desconto].sum().sum() if cols_desconto else 0.0
+    # CORREÇÃO FINANCEIRA: Descontos que diminuem o seu recebimento (Vendedor)
+    cols_desconto_vendedor = [c for c in [desconto_vendedor_col, cupom_vendedor_col] if c]
+    total_descontos_vendedor = df[cols_desconto_vendedor].sum().sum() if cols_desconto_vendedor else 0.0
     
-    # Soma de todas as taxas identificadas
+    # Subsídios (A Shopee paga para você - Não subtrair do esperado)
+    cols_subsidios = [c for c in [cupom_shopee_col, incentivo_col] if c]
+    total_subsidios_shopee = df[cols_subsidios].sum().sum() if cols_subsidios else 0.0
+    
+    # Soma de todas as taxas
     taxa_transacao = df[taxa_transacao_col].sum() if taxa_transacao_col else 0.0
     comissao_liq = df[comissao_liquida_col].sum() if comissao_liquida_col else 0.0
     servico_liq = df[servico_liquida_col].sum() if servico_liquida_col else 0.0
     frete_reverso = df[frete_reverso_col].sum() if frete_reverso_col else 0.0
     total_taxas = taxa_transacao + comissao_liq + servico_liq + frete_reverso
 
-    # FÓRMULA: Bruto - Taxas - Descontos
-    total_esperado = total_bruto - total_taxas - total_descontos
+    # FÓRMULA FINANCEIRA: Bruto - Taxas - Descontos do Vendedor
+    if total_global_col:
+        total_esperado = df[total_global_col].sum()
+    else:
+        total_esperado = total_bruto - total_taxas - total_descontos_vendedor
 
     # Cálculo de Devoluções
     total_devolvido = 0.0
@@ -45,17 +52,14 @@ def calculate_metrics(df: pd.DataFrame) -> Dict[str, float]:
         qtd_segura = df[qtd_col].replace(0, pd.NA)
         proporcao = (df[ret_col] / qtd_segura).fillna(0).clip(lower=0, upper=1)
         total_devolvido = (df[valor_total_col] * proporcao).sum()
-    elif valor_total_col and "Pedido Devolvido?" in df.columns:
-        total_devolvido = df.loc[df["Pedido Devolvido?"], valor_total_col].sum()
-
-    liquido_plataforma = df[total_global_col].sum() if total_global_col else (total_bruto - total_taxas)
 
     return {
         "Faturamento bruto": total_bruto,
         "Total de taxas": total_taxas,
-        "Total de descontos": total_descontos,
+        "Total de descontos": total_descontos_vendedor, # Chave restaurada para o app.py
+        "Subsídios Shopee": total_subsidios_shopee,
         "Total esperado": total_esperado,
-        "Líquido da plataforma": liquido_plataforma,
+        "Líquido da plataforma": total_esperado,
         "Ticket médio": total_bruto / df[pedido_col].nunique() if pedido_col and not df.empty else 0.0,
         "Total de pedidos": df[pedido_col].nunique() if pedido_col else 0,
         "Total de itens": df[qtd_col].sum() if qtd_col else 0,
@@ -63,7 +67,7 @@ def calculate_metrics(df: pd.DataFrame) -> Dict[str, float]:
         "Líquido após devoluções": total_esperado - total_devolvido,
         "Margem líquida operacional %": (total_esperado / total_bruto * 100) if total_bruto else 0.0,
         "Take Rate %": (total_taxas / total_bruto * 100) if total_bruto else 0.0,
-        "Peso dos descontos %": (total_descontos / total_bruto * 100) if total_bruto else 0.0,
+        "Peso dos descontos %": (total_descontos_vendedor / total_bruto * 100) if total_bruto else 0.0, # Chave restaurada
         "Taxa de transação": taxa_transacao,
         "Frete reverso": frete_reverso,
         "Comissão líquida": comissao_liq,
@@ -75,7 +79,6 @@ def calculate_receipt_metrics(conc_df: pd.DataFrame) -> Dict[str, float]:
     total_esperado = conc_df["valor_esperado"].sum() if "valor_esperado" in conc_df.columns else 0.0
     total_recebido = conc_df["valor_recebido"].sum() if "valor_recebido" in conc_df.columns else 0.0
     
-    # PMR Ponderado
     df_valido = conc_df.dropna(subset=["dias_para_receber", "valor_esperado"])
     pmr_ponderado = 0.0
     if not df_valido.empty and df_valido["valor_esperado"].sum() > 0:
