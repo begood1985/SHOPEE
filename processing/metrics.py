@@ -79,6 +79,12 @@ def calculate_receipt_metrics(conc_df: pd.DataFrame) -> Dict[str, float]:
     total_recebido = pd.to_numeric(conc_df["valor_recebido"], errors='coerce').sum() if "valor_recebido" in conc_df.columns else 0.0
     total_reembolso = pd.to_numeric(conc_df["valor_reembolso"], errors='coerce').sum() if "valor_reembolso" in conc_df.columns else 0.0
     
+    # --- ACRESCENTADO: Cálculos das novas métricas de divergência ---
+    divergencia_total = conc_df["divergencia"].sum() if "divergencia" in conc_df.columns else 0.0
+    ganhos_ajustes = conc_df[conc_df["divergencia"] > 0]["divergencia"].sum() if "divergencia" in conc_df.columns else 0.0
+    perdas_devolucoes = conc_df[conc_df["divergencia"] < 0]["divergencia"].sum() if "divergencia" in conc_df.columns else 0.0
+    # ----------------------------------------------------------------
+    
     df_valido = conc_df.dropna(subset=["dias_para_receber", "valor_esperado"]).copy()
     df_valido["valor_esperado"] = pd.to_numeric(df_valido["valor_esperado"], errors='coerce')
     df_valido["dias_para_receber"] = pd.to_numeric(df_valido["dias_para_receber"], errors='coerce')
@@ -93,6 +99,11 @@ def calculate_receipt_metrics(conc_df: pd.DataFrame) -> Dict[str, float]:
         "Total esperado": total_esperado,
         "Total recebido": total_recebido,
         "Total de reembolsos": total_reembolso,
+        # --- ACRESCENTADO: Retorno das novas métricas para o painel ---
+        "Divergência Total (Ajustes)": divergencia_total,
+        "Saldos Positivos (Ganhos)": ganhos_ajustes,
+        "Saldos Negativos (Diferenças)": perdas_devolucoes,
+        # --------------------------------------------------------------
         "Eficiência de Recebimento %": (total_recebido / total_esperado * 100) if total_esperado > 0 else 0.0,
         "PMR Ponderado (dias)": pmr_ponderado,
         "Qtd pedidos": conc_df["ID do pedido"].nunique() if "ID do pedido" in conc_df.columns else 0,

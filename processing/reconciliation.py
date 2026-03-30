@@ -87,6 +87,10 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
     else:
         conc["valor_reembolso"] = 0.0
 
+    # --- ACRESCENTADO: Coluna de divergência para o relatório ---
+    conc["divergencia"] = conc["valor_recebido"] - conc["valor_esperado"]
+    # ------------------------------------------------------------
+
     def classify(row):
         recebido = row["valor_recebido"]
         reembolso = row["valor_reembolso"]
