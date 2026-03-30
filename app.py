@@ -46,26 +46,25 @@ def main():
         metrics = calculate_metrics(filtered_sales)
 
         # 2. Painel de Métricas Principais (Faturamento e Caixa)
+        # Removido "Total Esperado" e "Líquido Plataforma" daqui conforme solicitado
         st.subheader("Visão Geral de Vendas")
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3) 
         c1.metric("Faturamento Bruto", brl(metrics["Faturamento bruto"]))
-        c2.metric("Líquido Plataforma", brl(metrics["Líquido da plataforma"]))
-        c3.metric("Total de Taxas", brl(metrics["Total de taxas"]))
-        c4.metric("Total de Descontos", brl(metrics["Total de descontos"]))
+        c2.metric("Total de Taxas", brl(metrics["Total de taxas"]))
+        c3.metric("Total de Descontos", brl(metrics["Total de descontos"]))
 
-        c5, c6, c7, c8 = st.columns(4)
-        c5.metric("Ticket Médio", brl(metrics["Ticket médio"]))
-        c6.metric("Total de Pedidos", f"{int(metrics['Total de pedidos'])}")
-        c7.metric("Total de Itens", f"{int(metrics['Total de itens'])}")
-        c8.metric("Total Devolvido", brl(metrics["Total devolvido"]))
+        c_a, c_b, c_c, c_d = st.columns(4)
+        c_a.metric("Ticket Médio", brl(metrics["Ticket médio"]))
+        c_b.metric("Total de Pedidos", f"{int(metrics['Total de pedidos'])}")
+        c_c.metric("Total de Itens", f"{int(metrics['Total de itens'])}")
+        c_d.metric("Total Devolvido", brl(metrics["Total devolvido"]))
 
         # 3. Indicadores de Rentabilidade Estratégica
         st.subheader("Indicadores de Rentabilidade e Taxas")
-        # Usamos .get para evitar erro se as fórmulas ainda não estiverem no metrics.py
         indicadores_estrategicos = pd.DataFrame([
+            ("Total Esperado (Bruto - Taxas - Descontos)", brl(metrics.get("Total esperado", 0))),
+            ("Líquido da Plataforma", brl(metrics["Líquido da plataforma"])),
             ("Take Rate (Carga de Taxas Real) %", f"{metrics.get('Take Rate %', 0):.2f}%"),
-            ("Margem de Contribuição Líquida", brl(metrics.get("Margem de Contribuição", 0))),
-            ("Margem de Contribuição %", f"{metrics.get('Margem de Contribuição %', 0):.2f}%"),
             ("Margem Líquida Operacional %", f"{metrics['Margem líquida operacional %']:.2f}%"),
             ("Peso dos Descontos %", f"{metrics['Peso dos descontos %']:.2f}%"),
         ], columns=["Indicador", "Valor"])
@@ -74,10 +73,7 @@ def main():
         # 4. Gráficos de Performance
         produto_col = find_column(filtered_sales, "Nome do Produto")
         valor_total_col = find_column(filtered_sales, "Valor Total")
-        qtd_col = find_column(filtered_sales, "Quantidade")
         uf_col = find_column(filtered_sales, "UF")
-        cidade_col = find_column(filtered_sales, "Cidade")
-        pedido_col = find_column(filtered_sales, "ID do pedido")
 
         left, right = st.columns(2)
         with left:
@@ -86,21 +82,11 @@ def main():
                 top_prod_fat = filtered_sales.groupby(produto_col)[valor_total_col].sum().sort_values(ascending=False).head(10)
                 plot_bar(top_prod_fat, "Faturamento por Produto")
             
+        with right:
             st.subheader("Vendas por UF")
             if uf_col and valor_total_col:
                 vendas_uf = filtered_sales.groupby(uf_col)[valor_total_col].sum().sort_values(ascending=False).head(15)
                 plot_bar(vendas_uf, "Faturamento por Estado")
-
-        with right:
-            st.subheader("Top 10 Produtos (Qtd)")
-            if produto_col and qtd_col:
-                top_prod_qtd = filtered_sales.groupby(produto_col)[qtd_col].sum().sort_values(ascending=False).head(10)
-                plot_bar(top_prod_qtd, "Quantidade por Produto")
-            
-            st.subheader("Vendas por Cidade")
-            if cidade_col and valor_total_col:
-                vendas_cidade = filtered_sales.groupby(cidade_col)[valor_total_col].sum().sort_values(ascending=False).head(15)
-                plot_bar(vendas_cidade, "Faturamento por Cidade")
 
         st.subheader("Base de Vendas Tratada")
         st.dataframe(filtered_sales, use_container_width=True, height=300)
@@ -115,11 +101,13 @@ def main():
             receipt_metrics = calculate_receipt_metrics(conc_df)
 
             # Métricas de Saúde de Caixa
-            r1, r2, r3, r4 = st.columns(4)
-            r1.metric("Eficiência de Recebimento", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
-            r2.metric("PMR Ponderado", f"{receipt_metrics.get('PMR Ponderado (dias)', 0):.1f} dias")
+            r1, r2, r3, r4, r5 = st.columns(5)
+            # O Total Esperado de recebimento permanece aqui para conferência
+            r1.metric("Total Esperado", brl(receipt_metrics.get("Total esperado", 0)))
+            r2.metric("Total Recebido", brl(receipt_metrics["Total recebido"]))
             r3.metric("Saldo Pendente", brl(receipt_metrics["Saldo pendente"]))
-            r4.metric("Total Recebido", brl(receipt_metrics["Total recebido"]))
+            r4.metric("Eficiência de Recebimento", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
+            r5.metric("PMR Ponderado", f"{receipt_metrics.get('PMR Ponderado (dias)', 0):.1f} dias")
 
             # Alertas Críticos
             divergencias_criticas = conc_df[conc_df["status_conciliacao"].str.contains("Crítica|Subpago", na=False)]
