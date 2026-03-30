@@ -3,8 +3,6 @@ from typing import Dict
 
 import pandas as pd
 
-
-
 def export_excel(
     df: pd.DataFrame,
     metrics: Dict[str, float],
@@ -25,8 +23,9 @@ def export_excel(
 
         if conc_df is not None and not conc_df.empty:
             conc_df.to_excel(writer, index=False, sheet_name="Conciliacao")
-            divergencias = conc_df[conc_df["status_conciliacao"] != "Recebido integralmente"].copy()
-            divergencias.to_excel(writer, index=False, sheet_name="Divergencias")
+            sem_lancamento = conc_df[conc_df["status_conciliacao"] == "Sem lançamento"].copy()
+            if not sem_lancamento.empty:
+                sem_lancamento.to_excel(writer, index=False, sheet_name="Sem_Lancamento")
 
         if receipt_metrics is not None:
             pd.DataFrame(list(receipt_metrics.items()), columns=["Indicador", "Valor"]).to_excel(

@@ -46,7 +46,6 @@ def main():
         metrics = calculate_metrics(filtered_sales)
 
         # 2. Painel de Métricas Principais (Faturamento e Caixa)
-        # Removido "Total Esperado" e "Líquido Plataforma" daqui conforme solicitado
         st.subheader("Visão Geral de Vendas")
         c1, c2, c3 = st.columns(3) 
         c1.metric("Faturamento Bruto", brl(metrics["Faturamento bruto"]))
@@ -102,26 +101,27 @@ def main():
 
             # Métricas de Saúde de Caixa
             r1, r2, r3, r4, r5 = st.columns(5)
-            # O Total Esperado de recebimento permanece aqui para conferência
             r1.metric("Total Esperado", brl(receipt_metrics.get("Total esperado", 0)))
             r2.metric("Total Recebido", brl(receipt_metrics["Total recebido"]))
-            r3.metric("Saldo Pendente", brl(receipt_metrics["Saldo pendente"]))
-            r4.metric("Eficiência de Recebimento", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
-            r5.metric("PMR Ponderado", f"{receipt_metrics.get('PMR Ponderado (dias)', 0):.1f} dias")
+            r3.metric("Eficiência %", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
+            r4.metric("Com Lançamento", f"{int(receipt_metrics.get('Qtd com lançamento', 0))}")
+            r5.metric("Sem Lançamento", f"{int(receipt_metrics.get('Qtd sem lançamento', 0))}")
 
-            # Alertas Críticos
-            divergencias_criticas = conc_df[conc_df["status_conciliacao"].str.contains("Crítica|Subpago", na=False)]
-            if not divergencias_criticas.empty:
-                st.error(f"⚠️ Detectados {len(divergencias_criticas)} pedidos com pagamento crítico abaixo do esperado.")
-                with st.expander("Ver Detalhes das Divergências Críticas"):
-                    st.dataframe(divergencias_criticas, use_container_width=True)
+            # Alertas: Pedidos sem lançamento
+            pedidos_sem_lancamento = conc_df[conc_df["status_conciliacao"] == "Sem lançamento"]
+            if not pedidos_sem_lancamento.empty:
+                st.error(f"⚠️ Detectados {len(pedidos_sem_lancamento)} pedidos sem nenhum lançamento financeiro (Não recebido).")
+                with st.expander("Ver Detalhes dos Pedidos Sem Lançamento"):
+                    st.dataframe(pedidos_sem_lancamento[["ID do pedido", "valor_esperado", "valor_recebido", "status_conciliacao"]], use_container_width=True)
 
             st.subheader("Status dos Pedidos")
             status_counts = conc_df["status_conciliacao"].value_counts()
-            plot_bar(status_counts, "Distribuição por Status de Conciliação")
+            plot_bar(status_counts, "Distribuição por Lançamentos")
 
-            st.subheader("Base Conciliada Completa")
-            st.dataframe(conc_df, use_container_width=True, height=400)
+            st.subheader("Base Conciliada (Focada em Valores Recebidos)")
+            colunas_exibicao = ["ID do pedido", "valor_recebido", "status_conciliacao", "valor_esperado", "data_venda", "primeiro_recebimento"]
+            colunas_existentes = [col for col in colunas_exibicao if col in conc_df.columns]
+            st.dataframe(conc_df[colunas_existentes], use_container_width=True, height=400)
 
             # Exportação
             excel_bytes = export_excel(filtered_sales, metrics, conc_df, receipt_metrics, receipts_df)

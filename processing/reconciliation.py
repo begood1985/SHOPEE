@@ -56,18 +56,12 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
     # Cruzamento de dados
     conc = sales_summary.merge(receipts_summary, on="ID do pedido", how="left")
     conc["valor_recebido"] = conc["valor_recebido"].fillna(0.0)
-    conc["diferenca"] = conc["valor_recebido"] - conc["valor_esperado"]
 
-    # Classificação de Status
+    # Classificação de Status Simplificada
     def classify(row):
-        esperado = row["valor_esperado"]
         recebido = row["valor_recebido"]
-        diff = row["diferenca"]
-        if abs(recebido) <= 0.01: return "Não recebido"
-        if abs(diff) <= 0.05: return "Recebido integralmente"
-        if recebido < (esperado * 0.8): return "Divergência Crítica (Subpago)"
-        if recebido < esperado: return "Recebido parcialmente"
-        return "Recebido a maior"
+        if abs(recebido) <= 0.01: return "Sem lançamento"
+        return "Recebido"
 
     conc["status_conciliacao"] = conc.apply(classify, axis=1)
     
