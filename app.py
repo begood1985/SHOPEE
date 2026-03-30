@@ -99,14 +99,22 @@ def main():
             conc_df = reconcile_sales_and_receipts(filtered_sales, receipts_df)
             receipt_metrics = calculate_receipt_metrics(conc_df)
 
-            # Métricas de Saúde de Caixa (Adicionado "Total Reembolso")
-            r1, r2, r3, r4, r5, r6 = st.columns(6)
+            # --- ATUALIZADO: Métricas de Saúde de Caixa e Divergências ---
+            st.subheader("Indicadores de Repasse e Eficiência")
+            r1, r2, r3, r4, r5 = st.columns(5)
             r1.metric("Total Esperado", brl(receipt_metrics.get("Total esperado", 0)))
-            r2.metric("Total Recebido", brl(receipt_metrics["Total recebido"]))
+            r2.metric("Total Recebido", brl(receipt_metrics.get("Total recebido", 0)))
             r3.metric("Total Reembolso", brl(receipt_metrics.get("Total de reembolsos", 0)))
-            r4.metric("Eficiência %", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
-            r5.metric("Lançados", f"{int(receipt_metrics.get('Qtd com lançamento', 0))}")
-            r6.metric("Sem Lançamento", f"{int(receipt_metrics.get('Qtd sem lançamento', 0))}")
+            r4.metric("Divergência Total", brl(receipt_metrics.get("Divergência Total (Ajustes)", 0)))
+            r5.metric("Eficiência %", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
+
+            st.subheader("Análise de Divergências (Ganhos e Perdas)")
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Saldos Positivos (Ganhos c/ Frete/PIX)", brl(receipt_metrics.get("Saldos Positivos (Ganhos)", 0)))
+            d2.metric("Saldos Negativos (Devoluções/Taxas)", brl(receipt_metrics.get("Saldos Negativos (Diferenças)", 0)))
+            d3.metric("Lançados", f"{int(receipt_metrics.get('Qtd com lançamento', 0))}")
+            d4.metric("Sem Lançamento", f"{int(receipt_metrics.get('Qtd sem lançamento', 0))}")
+            # -------------------------------------------------------------
 
             # Alertas: Pedidos sem lançamento
             pedidos_sem_lancamento = conc_df[conc_df["status_conciliacao"] == "Sem lançamento"]
@@ -120,8 +128,11 @@ def main():
             plot_bar(status_counts, "Distribuição por Lançamentos")
 
             st.subheader("Base Conciliada (Focada em Lançamentos Financeiros)")
-            colunas_exibicao = ["ID do pedido", "valor_recebido", "valor_reembolso", "status_conciliacao", "valor_esperado", "data_venda", "primeiro_recebimento"]
+            # --- ATUALIZADO: A coluna 'divergencia' foi adicionada à lista de exibição ---
+            colunas_exibicao = ["ID do pedido", "valor_recebido", "valor_reembolso", "status_conciliacao", "valor_esperado", "divergencia", "data_venda", "primeiro_recebimento"]
             colunas_existentes = [col for col in colunas_exibicao if col in conc_df.columns]
+            
+            # Formatação opcional para destacar os ganhos e perdas na tabela
             st.dataframe(conc_df[colunas_existentes], use_container_width=True, height=400)
 
             # Exportação
