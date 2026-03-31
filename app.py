@@ -12,142 +12,158 @@ from utils.column_utils import find_column
 from utils.money_utils import brl
 from visual.charts import plot_bar, plot_line
 
-# Configuração da página
-st.set_page_config(page_title="Depuradora Financeira", page_icon="📊", layout="wide")
+# Configuração da página para máxima visibilidade
+st.set_page_config(page_title="Auditoria Shopee Pro", page_icon="💰", layout="wide")
 
 def main():
-    st.title("📊 Depuradora Financeira de Planilhas Shopee")
-    st.caption("Relatório de conciliação e rentabilidade avançada para marketplace.")
+    st.title("💰 Auditoria Financeira Avançada Shopee")
+    st.markdown("---")
 
-    # Upload de arquivos
-    uploaded_sales = st.file_uploader("Envie a planilha .xlsx de vendas", type=["xlsx"])
-    uploaded_receipts = st.file_uploader(
-        "Envie uma ou mais planilhas .xlsx de recebimentos",
-        type=["xlsx"],
-        accept_multiple_files=True,
-    )
+    # Sidebar para Uploads e Organização
+    with st.sidebar:
+        st.header("📂 Entrada de Dados")
+        uploaded_sales = st.file_uploader("1. Planilha de Vendas (.xlsx)", type=["xlsx"])
+        uploaded_receipts = st.file_uploader("2. Planilhas de Recebimentos (.xlsx)", type=["xlsx"], accept_multiple_files=True)
+        st.info("💡 Dica: Use as planilhas oficiais exportadas da Central do Vendedor.")
 
     if not uploaded_sales:
-        st.info("Envie a planilha de vendas para começar.")
+        st.warning("⚠️ Por favor, carregue a planilha de vendas na barra lateral para começar.")
         return
 
     try:
-        # 1. Carregamento e Processamento Inicial
+        # 1. Processamento de Dados
         sales_raw = load_sales_excel(uploaded_sales)
         ok, missing = validate_columns(sales_raw)
-
         if not ok:
-            st.error("Faltam colunas essenciais na planilha de vendas: " + ", ".join(missing))
-            st.dataframe(pd.DataFrame({"Colunas encontradas": sales_raw.columns}))
+            st.error(f"❌ Colunas ausentes: {', '.join(missing)}")
             return
 
         sales_df = normalize_sales_dataframe(sales_raw)
         filtered_sales = apply_filters(sales_df)
         metrics = calculate_metrics(filtered_sales)
 
-        # 2. Painel de Métricas Principais (Faturamento e Caixa)
-        st.subheader("Visão Geral de Vendas")
-        c1, c2, c3 = st.columns(3) 
-        c1.metric("Faturamento Bruto", brl(metrics["Faturamento bruto"]))
-        c2.metric("Total de Taxas", brl(metrics["Total de taxas"]))
-        c3.metric("Total de Descontos", brl(metrics["Total de descontos"]))
+        # Inicializa r_metrics como None para o caso de não haver recebimentos carregados ainda
+        r_metrics = None
+        conc_df = None
 
-        c_a, c_b, c_c, c_d = st.columns(4)
-        c_a.metric("Ticket Médio", brl(metrics["Ticket médio"]))
-        c_b.metric("Total de Pedidos", f"{int(metrics['Total de pedidos'])}")
-        c_c.metric("Total de Itens", f"{int(metrics['Total de itens'])}")
-        c_d.metric("Total Devolvido", brl(metrics["Total devolvido"]))
-
-        # 3. Indicadores de Rentabilidade Estratégica
-        st.subheader("Indicadores de Rentabilidade e Taxas")
-        indicadores_estrategicos = pd.DataFrame([
-            ("Total Esperado (Bruto - Taxas - Descontos)", brl(metrics.get("Total esperado", 0))),
-            ("Líquido da Plataforma", brl(metrics["Líquido da plataforma"])),
-            ("Take Rate (Carga de Taxas Real) %", f"{metrics.get('Take Rate %', 0):.2f}%"),
-            ("Margem Líquida Operacional %", f"{metrics['Margem líquida operacional %']:.2f}%"),
-            ("Peso dos Descontos %", f"{metrics['Peso dos descontos %']:.2f}%"),
-        ], columns=["Indicador", "Valor"])
-        st.dataframe(indicadores_estrategicos, use_container_width=True)
-
-        # 4. Gráficos de Performance
-        produto_col = find_column(filtered_sales, "Nome do Produto")
-        valor_total_col = find_column(filtered_sales, "Valor Total")
-        uf_col = find_column(filtered_sales, "UF")
-
-        left, right = st.columns(2)
-        with left:
-            st.subheader("Top 10 Produtos (R$)")
-            if produto_col and valor_total_col:
-                top_prod_fat = filtered_sales.groupby(produto_col)[valor_total_col].sum().sort_values(ascending=False).head(10)
-                plot_bar(top_prod_fat, "Faturamento por Produto")
-            
-        with right:
-            st.subheader("Vendas por UF")
-            if uf_col and valor_total_col:
-                vendas_uf = filtered_sales.groupby(uf_col)[valor_total_col].sum().sort_values(ascending=False).head(15)
-                plot_bar(vendas_uf, "Faturamento por Estado")
-
-        st.subheader("Base de Vendas Tratada")
-        st.dataframe(filtered_sales, use_container_width=True, height=300)
-
-        # 5. Conciliação de Recebimentos
-        st.divider()
-        st.header("💳 Conciliação Financeira")
-        
+        # Processamento prévio de recebimentos se disponíveis para alimentar a Rentabilidade Estratégica
         if uploaded_receipts:
             receipts_df = load_multiple_receipts(uploaded_receipts)
             conc_df = reconcile_sales_and_receipts(filtered_sales, receipts_df)
-            receipt_metrics = calculate_receipt_metrics(conc_df)
+            # Passamos o total de taxas estimadas para o cálculo da Taxa Efetiva
+            r_metrics = calculate_receipt_metrics(conc_df, metrics.get("Total de taxas", 0))
 
-            # --- ATUALIZADO: Métricas de Saúde de Caixa e Divergências ---
-            st.subheader("Indicadores de Repasse e Eficiência")
-            r1, r2, r3, r4, r5 = st.columns(5)
-            r1.metric("Total Esperado", brl(receipt_metrics.get("Total esperado", 0)))
-            r2.metric("Total Recebido", brl(receipt_metrics.get("Total recebido", 0)))
-            r3.metric("Total Reembolso", brl(receipt_metrics.get("Total de reembolsos", 0)))
-            r4.metric("Divergência Total", brl(receipt_metrics.get("Divergência Total (Ajustes)", 0)))
-            r5.metric("Eficiência %", f"{receipt_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
+        # ==========================================
+        # ABA 1: PERFORMANCE DE VENDAS (SAÚDE DO NEGÓCIO)
+        # ==========================================
+        st.header("📈 Desempenho Comercial")
+        
+        with st.container():
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("GMV (Volume Total)", brl(metrics.get("Volume Transacionado (GMV)", 0)), 
+                          help="Tudo o que o cliente pagou (Preço + Frete).")
+            with c2:
+                st.metric("Faturamento Líquido (Produtos)", brl(metrics.get("Faturamento bruto", 0)),
+                          help="Valor real dos seus produtos vendidos.")
+            with c3:
+                st.metric("Total de Taxas", f"- {brl(metrics.get('Total de taxas', 0))}", 
+                          delta_color="inverse", help="Comissões e fretes retidos pela Shopee.")
 
-            st.subheader("Análise de Divergências (Ganhos e Perdas)")
-            d1, d2, d3, d4 = st.columns(4)
-            d1.metric("Saldos Positivos (Ganhos c/ Frete/PIX)", brl(receipt_metrics.get("Saldos Positivos (Ganhos)", 0)))
-            d2.metric("Saldos Negativos (Devoluções/Taxas)", brl(receipt_metrics.get("Saldos Negativos (Diferenças)", 0)))
-            d3.metric("Lançados", f"{int(receipt_metrics.get('Qtd com lançamento', 0))}")
-            d4.metric("Sem Lançamento", f"{int(receipt_metrics.get('Qtd sem lançamento', 0))}")
-            # -------------------------------------------------------------
+        st.markdown("#### 🎯 Rentabilidade Estratégica")
+        
+        # --- SEÇÃO ATUALIZADA: Comparativo de Taxas Estimada vs Efetiva ---
+        if r_metrics:
+            m1, m2, m3, m4, m5 = st.columns(5)
+            m1.metric("Take Rate (Estimado)", f"{metrics.get('Take Rate %', 0):.2f}%", 
+                      help="Carga inicial baseada na venda.")
+            # Exibe a Taxa Efetiva e o Delta (a economia que você teve com os créditos)
+            m2.metric("Take Rate (Efetivo)", f"{r_metrics.get('Taxa Efetiva %', 0):.2f}%", 
+                      help="Carga real após os créditos de frete e PIX.",
+                      delta=f"{r_metrics.get('Taxa Efetiva %', 0) - metrics.get('Take Rate %', 0):.2f}%")
+            m3.metric("Margem Operacional", f"{metrics.get('Margem líquida operacional %', 0):.2f}%")
+            m4.metric("Ticket Médio", brl(metrics.get("Ticket médio", 0)))
+            m5.metric("Total de Pedidos", f"{int(metrics.get('Total de pedidos', 0))} un")
+        else:
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Take Rate (Taxas)", f"{metrics.get('Take Rate %', 0):.2f}%")
+            m2.metric("Margem Operacional", f"{metrics.get('Margem líquida operacional %', 0):.2f}%")
+            m3.metric("Ticket Médio", brl(metrics.get("Ticket médio", 0)))
+            m4.metric("Total de Pedidos", f"{int(metrics.get('Total de pedidos', 0))} un")
+        # -----------------------------------------------------------------
 
-            # Alertas: Pedidos sem lançamento
-            pedidos_sem_lancamento = conc_df[conc_df["status_conciliacao"] == "Sem lançamento"]
-            if not pedidos_sem_lancamento.empty:
-                st.error(f"⚠️ Detectados {len(pedidos_sem_lancamento)} pedidos sem nenhum lançamento financeiro (Sem Recebimento / Sem Reembolso).")
-                with st.expander("Ver Detalhes dos Pedidos Sem Lançamento"):
-                    st.dataframe(pedidos_sem_lancamento[["ID do pedido", "valor_esperado", "valor_recebido", "valor_reembolso", "status_conciliacao"]], use_container_width=True)
+        st.markdown("---")
+        g1, g2 = st.columns(2)
+        with g1:
+            st.subheader("Top 10 Produtos")
+            prod_col = find_column(filtered_sales, "Nome do Produto")
+            val_col = find_column(filtered_sales, "Valor Total")
+            if prod_col and val_col:
+                top_data = filtered_sales.groupby(prod_col)[val_col].sum().sort_values(ascending=False).head(10)
+                plot_bar(top_data, "Ranking por Faturamento")
+        with g2:
+            st.subheader("Concentração por Estado")
+            uf_col = find_column(filtered_sales, "UF")
+            if uf_col and val_col:
+                uf_data = filtered_sales.groupby(uf_col)[val_col].sum().sort_values(ascending=False)
+                plot_bar(uf_data, "Vendas por UF")
 
-            st.subheader("Status dos Pedidos")
-            status_counts = conc_df["status_conciliacao"].value_counts()
-            plot_bar(status_counts, "Distribuição por Lançamentos")
+        # ==========================================
+        # ABA 2: AUDITORIA FINANCEIRA (CONCILIAÇÃO)
+        # ==========================================
+        st.divider()
+        st.header("💳 Auditoria de Caixa (Conciliação Financeira)")
 
-            st.subheader("Base Conciliada (Focada em Lançamentos Financeiros)")
-            # --- ATUALIZADO: A coluna 'divergencia' foi adicionada à lista de exibição ---
-            colunas_exibicao = ["ID do pedido", "valor_recebido", "valor_reembolso", "status_conciliacao", "valor_esperado", "divergencia", "data_venda", "primeiro_recebimento"]
-            colunas_existentes = [col for col in colunas_exibicao if col in conc_df.columns]
-            
-            # Formatação opcional para destacar os ganhos e perdas na tabela
-            st.dataframe(conc_df[colunas_existentes], use_container_width=True, height=400)
+        if r_metrics:
+            # Destaque visual do Reembolso e Eficiência
+            a1, a2, a3, a4 = st.columns(4)
+            a1.metric("Total Esperado", brl(r_metrics.get('Total esperado', 0)))
+            a2.metric("Total Recebido", brl(r_metrics.get('Total recebido', 0)))
+            a3.metric("Total de Reembolsos", brl(r_metrics.get('Total de reembolsos', 0)), delta_color="inverse")
+            a4.metric("Eficiência de Repasse", f"{r_metrics.get('Eficiência de Recebimento %', 0):.2f}%")
+
+            with st.expander("📝 Entenda a Prova Real do seu Caixa", expanded=True):
+                col_math_1, col_math_2 = st.columns(2)
+                with col_math_1:
+                    st.write("**Fluxo de Fechamento:**")
+                    st.write(f"(+) Valor Esperado de Vendas: `{brl(r_metrics.get('Total esperado', 0))}`")
+                    st.write(f"(+) Ganhos Extras (Frete/PIX/Ajustes): `{brl(r_metrics.get('Saldos Positivos (Ganhos)', 0))}`")
+                    st.write(f"(-) Reembolsos e Devoluções: `{brl(r_metrics.get('Total de reembolsos', 0))}`")
+                    st.write(f"**(=) TOTAL REAL RECEBIDO: {brl(r_metrics.get('Total recebido', 0))}**")
+                
+                with col_math_2:
+                    st.write("**Detalhamento de Divergências:**")
+                    
+                    # Subgrupo de Ganhos
+                    st.write(f"🟢 **Ganhos c/ Frete/PIX: {brl(r_metrics.get('Saldos Positivos (Ganhos)', 0))}**")
+                    st.caption("↳ Ajustes de frete, comissão e incentivos PIX.")
+                    
+                    st.markdown("---")
+                    
+                    # Subgrupo de Diferenças Negativas
+                    st.write(f"🔴 **Diferenças Negativas: {brl(r_metrics.get('Saldos Negativos (Diferenças)', 0))}**")
+                    st.write(f"↳ Reembolsos Diretos: `{brl(r_metrics.get('Total de reembolsos', 0))}`")
+                    st.write(f"↳ Outros Ajustes: `{brl(r_metrics.get('Outras Diferenças Negativas', 0))}`")
+                    st.caption("↳ Taxas de pesagem, fretes reversos e ajustes de taxas.")
+                    
+                    st.markdown("---")
+                    st.write(f"📊 Pedidos Auditados: `{int(r_metrics.get('Qtd pedidos', 0))}`")
 
             # Exportação
-            excel_bytes = export_excel(filtered_sales, metrics, conc_df, receipt_metrics, receipts_df)
+            st.divider()
+            excel_bytes = export_excel(filtered_sales, metrics, conc_df, r_metrics, receipts_df)
             st.download_button(
-                label="📥 Baixar Relatório Completo (Excel)",
+                label="📥 Baixar Auditoria Completa em Excel",
                 data=excel_bytes,
-                file_name="conciliacao_financeira_shopee.xlsx",
+                file_name=f"auditoria_shopee_{pd.Timestamp.now().strftime('%d_%m_%Y')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
+
         else:
-            st.warning("Aguardando planilhas de recebimentos para iniciar a conciliação.")
+            st.warning("🧐 Aguardando planilhas de recebimentos para gerar a auditoria.")
 
     except Exception as e:
-        st.error(f"Erro no processamento: {e}")
+        st.error(f"🚨 Erro no Processamento: {str(e)}")
 
 if __name__ == "__main__":
     main()

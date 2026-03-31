@@ -21,7 +21,7 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
     frete_rev_col = find_column(sales_df, "Taxa de Envio Reversa")
     ajuste_acao_col = find_column(sales_df, "Ajuste por participação em ação comercial")
     
-    # Cupons do Vendedor (O Desconto do Vendedor JÁ ESTÁ no Subtotal, não podemos subtrair de novo!)
+    # Cupons do Vendedor
     cupom_vend_col = find_column(sales_df, "Cupom do vendedor")
     
     # Adições/Incentivos da Plataforma (O que entra)
@@ -38,35 +38,36 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
     def safe_sum(df, cols):
         return df[cols].apply(pd.to_numeric, errors='coerce').fillna(0).sum(axis=1) if cols else 0.0
 
+    # Cálculos por linha (preparação para o agrupamento)
     sales_df['_taxas_soma'] = safe_sum(sales_df, cols_taxas)
     sales_df['_cupons_vend_soma'] = safe_sum(sales_df, cols_cupons)
     sales_df['_adicoes_soma'] = safe_sum(sales_df, cols_adicoes)
     
-    # APLICAÇÃO DA FÓRMULA CORRIGIDA
-    if subtotal_col:
-        sales_df['_base_calc'] = pd.to_numeric(sales_df[subtotal_col], errors='coerce').fillna(0)
-        # FÓRMULA: Subtotal - Cupom Vendedor + Incentivos - Taxas
-        sales_df['_esperado_final'] = (
-            sales_df['_base_calc']
-            - sales_df['_cupons_vend_soma'] 
-            + sales_df['_adicoes_soma'] 
-            - sales_df['_taxas_soma']
-        )
-        base_faturamento = subtotal_col
-    else:
-        bruto_col = pd.to_numeric(sales_df[valor_total_col], errors='coerce').fillna(0)
-        sales_df['_esperado_final'] = bruto_col - sales_df['_taxas_soma'] - sales_df['_cupons_vend_soma']
-        base_faturamento = valor_total_col
+    # Define a base de cálculo (Subtotal ou Valor Total)
+    base_col = subtotal_col if subtotal_col else valor_total_col
+    sales_df['_base_calc'] = pd.to_numeric(sales_df[base_col], errors='coerce').fillna(0)
 
-    # Agrupar Vendas
+    # Agrupar Vendas: 
+    # Somamos o bruto (itens) e pegamos o valor máximo das taxas/cupons (que a plataforma repete em cada linha)
     agg_dict = {
-        "valor_bruto": (base_faturamento, "sum"),
-        "valor_esperado": ('_esperado_final', "sum"),
+        "valor_bruto": ('_base_calc', "sum"),
+        "_taxas_total": ('_taxas_soma', "max"),
+        "_cupons_total": ('_cupons_vend_soma', "max"),
+        "_adicoes_total": ('_adicoes_soma', "max"),
     }
+    
     if venda_data_col:
         agg_dict["data_venda"] = (venda_data_col, "min")
 
     sales_summary = sales_df.groupby(pedido_col).agg(**agg_dict).reset_index().rename(columns={pedido_col: "ID do pedido"})
+
+    # Cálculo do Valor Esperado consolidado por pedido
+    sales_summary["valor_esperado"] = (
+        sales_summary["valor_bruto"]
+        - sales_summary["_cupons_total"] 
+        + sales_summary["_adicoes_total"] 
+        - sales_summary["_taxas_total"]
+    )
 
     # Agrupar Recebimentos
     agg_receipts = {
@@ -79,17 +80,13 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
 
     receipts_summary = receipts_df.groupby("_receipt_order_id").agg(**agg_receipts).reset_index().rename(columns={"_receipt_order_id": "ID do pedido"})
 
+    # Cruzamento de dados
     conc = sales_summary.merge(receipts_summary, on="ID do pedido", how="left")
     conc["valor_recebido"] = conc["valor_recebido"].fillna(0.0)
-    
-    if "valor_reembolso" in conc.columns:
-        conc["valor_reembolso"] = conc["valor_reembolso"].fillna(0.0)
-    else:
-        conc["valor_reembolso"] = 0.0
+    conc["valor_reembolso"] = conc.get("valor_reembolso", 0.0).fillna(0.0)
 
-    # --- ACRESCENTADO: Coluna de divergência para o relatório ---
+    # Coluna de divergência para o relatório
     conc["divergencia"] = conc["valor_recebido"] - conc["valor_esperado"]
-    # ------------------------------------------------------------
 
     def classify(row):
         recebido = row["valor_recebido"]
@@ -105,4 +102,6 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
     else:
         conc["dias_para_receber"] = pd.NA
 
-    return conc
+    # Limpeza de colunas auxiliares antes de retornar
+    cols_to_drop = ["_taxas_total", "_cupons_total", "_adicoes_total"]
+    return conc.drop(columns=[c for c in cols_to_drop if c in conc.columns])
