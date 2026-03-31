@@ -125,8 +125,7 @@ def main():
                 integrity_ok = False
                 st.error(
                     "❌ Auditoria de fluxo de caixa inconsistente: "
-                    "Soma(Valor Esperado) + Soma(Divergências) != "
-                    "Soma(Total Recebido + Total Reembolsado)."
+                    "Total Recebido != Total Esperado + Total Reembolsos + Divergência Total."
                 )
 
             with st.expander("📝 Entenda a Prova Real do seu Caixa", expanded=True):
@@ -134,8 +133,8 @@ def main():
                 with col_math_1:
                     st.write("**Fluxo de Fechamento:**")
                     st.write(f"(+) Valor Esperado de Vendas: `{brl(r_metrics.get('Total esperado', 0))}`")
-                    st.write(f"(+) Ganhos Extras (Frete/PIX/Ajustes): `{brl(r_metrics.get('Saldos Positivos (Ganhos)', 0))}`")
-                    st.write(f"(-) Reembolsos e Devoluções: `{brl(r_metrics.get('Total de reembolsos', 0))}`")
+                    st.write(f"(+) Reembolsos (valor negativo): `{brl(r_metrics.get('Total de reembolsos', 0))}`")
+                    st.write(f"(+) Divergência Residual (Ajustes): `{brl(r_metrics.get('Divergência Total (Ajustes)', 0))}`")
                     st.write(f"**(=) TOTAL REAL RECEBIDO: {brl(r_metrics.get('Total recebido', 0))}**")
                 
                 with col_math_2:
@@ -156,43 +155,37 @@ def main():
                         f"↳ Visão Operacional (sem reembolso): "
                         f"`{brl(r_metrics.get('Divergência Operacional (sem reembolso)', 0))}`"
                     )
-                    st.caption("↳ Taxas de pesagem, fretes reversos e ajustes de taxas.")
+                    st.caption("↳ Outros Ajustes já excluem reembolsos para evitar dupla contagem.")
                     
                     st.markdown("---")
                     st.write(f"📊 Pedidos Auditados: `{int(r_metrics.get('Qtd pedidos', 0))}`")
                     # -----------------------------------------------------
 
             with st.expander("🔎 Relatório Completo de Outros Ajustes", expanded=False):
-                # Decomposição da divergência:
-                # divergencia_contabil = divergencia_operacional + impacto_reembolso
+                # Decomposicao:
+                # gap_faturamento = recebido - esperado
+                # gap_faturamento = reembolso + divergencia_residual
                 aux = conc_df.copy()
                 aux["divergencia"] = pd.to_numeric(aux["divergencia"], errors="coerce").fillna(0.0)
                 aux["valor_reembolso"] = pd.to_numeric(aux["valor_reembolso"], errors="coerce").fillna(0.0)
-
-                if "divergencia_operacional_sem_reembolso" in aux.columns:
-                    aux["outros_ajustes"] = pd.to_numeric(
-                        aux["divergencia_operacional_sem_reembolso"], errors="coerce"
-                    ).fillna(0.0)
-                else:
-                    aux["valor_recebido"] = pd.to_numeric(aux["valor_recebido"], errors="coerce").fillna(0.0)
-                    aux["valor_esperado"] = pd.to_numeric(aux["valor_esperado"], errors="coerce").fillna(0.0)
-                    aux["outros_ajustes"] = aux["valor_recebido"] - aux["valor_esperado"]
-
+                aux["valor_recebido"] = pd.to_numeric(aux["valor_recebido"], errors="coerce").fillna(0.0)
+                aux["valor_esperado"] = pd.to_numeric(aux["valor_esperado"], errors="coerce").fillna(0.0)
+                aux["gap_faturamento"] = aux["valor_recebido"] - aux["valor_esperado"]
+                aux["outros_ajustes"] = aux["divergencia"]
                 aux["impacto_reembolso"] = aux["valor_reembolso"]
 
-                neg_total = aux[aux["divergencia"] < -0.01]["divergencia"].sum()
+                neg_gap = aux[aux["gap_faturamento"] < -0.01]["gap_faturamento"].sum()
                 neg_reembolso = aux[aux["impacto_reembolso"] < -0.01]["impacto_reembolso"].sum()
                 neg_outros = aux[aux["outros_ajustes"] < -0.01]["outros_ajustes"].sum()
 
                 x1, x2, x3 = st.columns(3)
-                x1.metric("Negativas Totais (Contábil)", brl(neg_total))
+                x1.metric("Gap Negativo (Recebido - Esperado)", brl(neg_gap))
                 x2.metric("Parcela de Reembolsos", brl(neg_reembolso))
                 x3.metric("Parcela de Outros Ajustes", brl(neg_outros))
 
                 st.caption(
-                    "Outros Ajustes = diferença operacional sem reembolso. "
-                    "Normalmente inclui retenções, taxas de ajuste, arredondamentos, lançamentos parciais e "
-                    "diferenças temporais de repasse."
+                    "Outros Ajustes = divergência residual após considerar reembolsos. "
+                    "Ou seja, é o que sobra do gap que não é explicado nem por recebimento nem por reembolso."
                 )
 
                 top_outros = aux[aux["outros_ajustes"] < -0.01].copy()

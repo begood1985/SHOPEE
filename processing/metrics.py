@@ -168,16 +168,21 @@ def calculate_receipt_metrics(conc_df: pd.DataFrame) -> Dict[str, float]:
     total_recebido = pd.to_numeric(conc_df["valor_recebido"], errors="coerce").sum() if "valor_recebido" in conc_df.columns else 0.0
     total_reembolso = pd.to_numeric(conc_df["valor_reembolso"], errors="coerce").sum() if "valor_reembolso" in conc_df.columns else 0.0
 
-    divergencia_total = conc_df["divergencia"].sum() if "divergencia" in conc_df.columns else 0.0
-    divergencia_operacional_total = (
-        conc_df["divergencia_operacional_sem_reembolso"].sum()
-        if "divergencia_operacional_sem_reembolso" in conc_df.columns
-        else 0.0
-    )
-    ganhos_ajustes = conc_df[conc_df["divergencia"] > 0.01]["divergencia"].sum() if "divergencia" in conc_df.columns else 0.0
-    perdas_totais = conc_df[conc_df["divergencia"] < -0.01]["divergencia"].sum() if "divergencia" in conc_df.columns else 0.0
+    work = conc_df.copy()
+    work["divergencia"] = pd.to_numeric(work.get("divergencia", 0.0), errors="coerce").fillna(0.0)
+    work["valor_reembolso"] = pd.to_numeric(work.get("valor_reembolso", 0.0), errors="coerce").fillna(0.0)
+    # Com a formula nova, "divergencia" ja e o ajuste residual nao explicado por recebimento/reembolso.
+    work["outros_ajustes"] = work["divergencia"]
+    work["divergencia_operacional_sem_reembolso"] = pd.to_numeric(
+        work.get("divergencia_operacional_sem_reembolso", work.get("valor_recebido", 0.0) - work.get("valor_esperado", 0.0)),
+        errors="coerce",
+    ).fillna(0.0)
 
-    outras_diferencas_neg = perdas_totais - total_reembolso
+    divergencia_total = work["divergencia"].sum()
+    divergencia_operacional_total = work["divergencia_operacional_sem_reembolso"].sum()
+    ganhos_ajustes = work[work["divergencia"] > 0.01]["divergencia"].sum()
+    perdas_totais = work[work["divergencia"] < -0.01]["divergencia"].sum()
+    outras_diferencas_neg = work[work["outros_ajustes"] < -0.01]["outros_ajustes"].sum()
 
     df_valido = conc_df.dropna(subset=["dias_para_receber", "valor_esperado"]).copy()
     df_valido["valor_esperado"] = pd.to_numeric(df_valido["valor_esperado"], errors="coerce")
@@ -188,10 +193,9 @@ def calculate_receipt_metrics(conc_df: pd.DataFrame) -> Dict[str, float]:
     if not df_valido.empty and soma_esp_valido > 0:
         pmr_ponderado = (df_valido["dias_para_receber"] * df_valido["valor_esperado"]).sum() / soma_esp_valido
 
-    # Prova real de fechamento de caixa
-    fechamento_lado_a = total_esperado + divergencia_total
-    fechamento_lado_b = total_recebido + total_reembolso
-    diferenca_fechamento = fechamento_lado_a - fechamento_lado_b
+    # Prova real de fechamento de caixa:
+    # Total Recebido = Total Esperado + Total Reembolsos + Divergencia Total
+    diferenca_fechamento = total_recebido - (total_esperado + total_reembolso + divergencia_total)
     fechamento_ok = round(diferenca_fechamento, 2) == 0
 
     return {

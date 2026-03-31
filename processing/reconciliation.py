@@ -155,9 +155,10 @@ def reconcile_sales_and_receipts(sales_df: pd.DataFrame, receipts_df: pd.DataFra
     else:
         conc["valor_reembolso"] = 0.0
 
-    # Visao contabil (considera creditos e debitos/reembolsos).
-    conc["divergencia"] = (conc["valor_recebido"] + conc["valor_reembolso"]) - conc["valor_esperado"]
-    # Visao operacional (desconsidera reembolso para leitura gerencial).
+    # Divergencia residual: o reembolso explica parte da ausencia de caixa,
+    # portanto nao deve ser somado como perda adicional.
+    conc["divergencia"] = conc["valor_recebido"] - (conc["valor_esperado"] + conc["valor_reembolso"])
+    # Gap bruto entre recebido e esperado (sem considerar reembolso).
     conc["divergencia_operacional_sem_reembolso"] = conc["valor_recebido"] - conc["valor_esperado"]
 
     def classify(row):
