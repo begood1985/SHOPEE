@@ -87,6 +87,12 @@ def find_receipt_amount_column(df: pd.DataFrame) -> str | None:
         "Quantia total lançada",
         "Quantia total",
         "Total lançado",
+        "Valor líquido",
+        "Valor liquido",
+        "Valor a receber",
+        "Valor recebido",
+        "Líquido",
+        "Liquido",
     ]
     col = pick_first_existing_column(df, candidates)
     if col:
@@ -98,6 +104,10 @@ def find_receipt_amount_column(df: pd.DataFrame) -> str | None:
             return real_col
         if "total" in norm and "lanc" in norm:
             return real_col
+        if "valor" in norm and "liquid" in norm:
+            return real_col
+        if "valor" in norm and "receb" in norm:
+            return real_col
     return None
 
 
@@ -108,6 +118,9 @@ def find_receipt_date_column(df: pd.DataFrame) -> str | None:
         "Data conclusão do pagamento",
         "Data de pagamento",
         "Data pagamento",
+        "Data de lançamento",
+        "Data lançamento",
+        "Data do lançamento",
     ]
     col = pick_first_existing_column(df, candidates)
     if col:
